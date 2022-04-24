@@ -1,0 +1,14 @@
+[package]
+name = "oko"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.57"
+winit = "0.26.1"
+
+[build-dependencies]
+anyhow = "1.0.57"
+hassle-rs = "0.9.0"
+walkdir = "2.3.2"
+shaderc = "0.8.0"
