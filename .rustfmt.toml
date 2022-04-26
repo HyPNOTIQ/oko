@@ -1,5 +1,5 @@
 # https://github.com/rust-lang/rustfmt/blob/master/Configurations.md
-# unstable_features = true
-# imports_granularity = "Crate"                # https://github.com/rust-lang/rustfmt/issues/4991
+imports_granularity = "One"
+imports_layout = "Vertical"
 hard_tabs = true
-# imports_layout = "Vertical"
+max_width = 90

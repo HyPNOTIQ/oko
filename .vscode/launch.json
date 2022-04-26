@@ -8,8 +8,22 @@
             "program": "${workspaceFolder}/target/debug/${workspaceFolderBasename}",
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal",
+            "console": "externalTerminal",
             "preLaunchTask": "rust: cargo build",
+            "args": [
+                // "res/gltf/EnvironmentTest/EnvironmentTest.gltf",
+                "res/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf",
+            ],
+            "environment": [
+                {
+                    "name": "RUST_LOG",
+                    "value": "info"
+                },
+                {
+                    "name": "VK_INSTANCE_LAYERS",
+                    "value": "VK_LAYER_KHRONOS_validation"
+                },
+            ],
         }
     ]
 }

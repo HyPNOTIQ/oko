@@ -34,7 +34,7 @@ fn main() -> Result<()> {
 	// -WX => Treat warnings as errors
 	// -Od => Disable optimizations
 	// -Zi => Enable debug information. Cannot be used together with -Zs
-	// use "dxc --help" for more info
+	// "dxc --help" for more info
 	let dxc_args = if cfg!(debug_assertions) {
 		["-spirv", "-WX", "-Od", "-Zi"].as_slice()
 	} else {
