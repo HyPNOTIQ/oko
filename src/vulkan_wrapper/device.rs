@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use {
 	super::{ExtensionName, Instance, PhysicalDevice},
 	anyhow::Result,
@@ -41,8 +39,6 @@ impl<'a> Device<'a> {
 				None,
 			)?
 		};
-
-		let instance_clone = instance.inner().clone();
 
 		let device = Self {
 			instance,

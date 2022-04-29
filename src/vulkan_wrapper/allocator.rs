@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use super::Device;
 use super::Instance;
 use super::PhysicalDevice;
@@ -15,6 +13,7 @@ impl<'a> Allocator<'a> {
 		instance: &'a Instance,
 		device: &'a Device,
 		physical_device: &PhysicalDevice,
+		buffer_device_address: bool,
 	) -> Result<Self> {
 		let allocator = gpu_allocator::vulkan::Allocator::new(
 			&gpu_allocator::vulkan::AllocatorCreateDesc {
@@ -22,7 +21,7 @@ impl<'a> Allocator<'a> {
 				device: device.inner().clone(),
 				physical_device: physical_device.handle,
 				debug_settings: Default::default(),
-				buffer_device_address: true, // Ideally, check the BufferDeviceAddressFeatures struct.
+				buffer_device_address,
 			},
 		)?;
 

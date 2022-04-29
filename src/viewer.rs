@@ -1,13 +1,15 @@
 use super::vulkan_wrapper;
 use super::vulkan_wrapper::Allocator;
+use super::vulkan_wrapper::CommandPool;
 use super::vulkan_wrapper::CreateSurface;
 use super::vulkan_wrapper::Device;
-use super::vulkan_wrapper::GraphicsPipeline;
 use super::vulkan_wrapper::Instance;
 use super::vulkan_wrapper::PhysicalDevice;
+use super::vulkan_wrapper::Semaphore;
 use super::vulkan_wrapper::ShaderModule;
 use super::vulkan_wrapper::Surface;
 use super::vulkan_wrapper::Swapchain;
+use super::vulkan_wrapper::TimelineSemaphore;
 use anyhow::Result;
 use ash::vk;
 use gltf::Gltf;
@@ -23,7 +25,16 @@ pub struct LaunchConfig {
 	pub scene_index: usize,
 }
 
-const SHADER_ENTRY_POINT: &'static std::ffi::CStr = cstr::cstr!("main");
+struct FrameSynchronization<'a> {
+	pub main_semaphore: TimelineSemaphore<'a>,
+	pub image_available_semaphore: Semaphore<'a>,
+}
+
+impl<'a> FrameSynchronization<'a> {
+	const COMPLETED: u64 = u64::MAX;
+}
+
+const SHADER_ENTRY_POINT: &std::ffi::CStr = cstr::cstr!("main");
 
 pub fn run<SurfaceOwner: CreateSurface>(
 	present_target: SurfaceOwner,
@@ -31,7 +42,7 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	rx: std::sync::mpsc::Receiver<Event>,
 ) -> Result<()> {
 	let input_file = Path::new(&config.input_file);
-	let gltf = Gltf::open(input_file)?;
+	let _gltf = Gltf::open(input_file)?;
 
 	let surface_required_extension = present_target.required_extensions()?;
 
@@ -74,19 +85,20 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	let device = Device::new(&instance, physical_device, &device_extensions, &queues)?;
 
 	// Allocator
-	let allocator = Allocator::new(&instance, &device, physical_device)?;
-	let mut allocator = RefCell::new(allocator);
+	let allocator = Allocator::new(&instance, &device, physical_device, false)?;
+	let _allocator = RefCell::new(allocator);
 
 	// Swapchain
 	let swapchain = Swapchain::new(&instance, &device, &surface)?;
 	let surface_extent = swapchain.extent();
+	let swapchain_image_count = swapchain.image_count();
 
 	// vertex shader
-	let vertex_shader_module =
+	let _vertex_shader_module =
 		ShaderModule::new(&device, &gen_shader_path("geometry.vert"))?;
 
 	// fragment shader
-	let frag_shader_module =
+	let _frag_shader_module =
 		ShaderModule::new(&device, &gen_shader_path("geometry.frag"))?;
 
 	// viewport state
@@ -129,7 +141,7 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
 		.attachments(&color_blend_attachments);
 
-	let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+	let _graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
 		// .stages(&shader_stage_create_infos)
 		// .input_assembly_state(&vertex_input_assembly_state_info)
 		// .vertex_input_state(&vertex_input_state_info)
@@ -150,8 +162,27 @@ pub fn run<SurfaceOwner: CreateSurface>(
 
 	// };
 
+	// command pool
+	let command_pool_create_info = vk::CommandPoolCreateInfo::builder()
+		.queue_family_index(graphics_queue_family_index);
+
+	let command_pool = CommandPool::new(&device, &command_pool_create_info)?;
+	// command buffers
+	let command_buffers = command_pool.allocate_command_buffers(
+		swapchain_image_count as _,
+		vk::CommandBufferLevel::PRIMARY,
+	)?;
+
+	let frame_synchronization = arr_macro::arr![FrameSynchronization {
+		main_semaphore: TimelineSemaphore::new(&device, 0)?,
+		image_available_semaphore: Semaphore::new(&device)?
+	}; /*max frames in progress*/ 3];
+
+	let mut iter = frame_synchronization.iter().cycle();
+
 	loop {
 		let mut stop = false;
+		let frame_synchronization = iter.next().unwrap();
 
 		for event in rx.try_iter() {
 			match event {
