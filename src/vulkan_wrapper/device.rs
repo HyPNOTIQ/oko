@@ -36,7 +36,7 @@ impl<'a> Device<'a> {
 
 		let inner = unsafe {
 			instance.inner().create_device(
-				physical_device.handle(),
+				physical_device.handle,
 				&device_create_info,
 				None,
 			)?
@@ -58,7 +58,7 @@ impl<'a> Device<'a> {
 	}
 
 	pub fn physical_device(&self) -> &PhysicalDevice {
-		&self.physical_device
+		self.physical_device
 	}
 
 	pub fn wait_idle(&self) -> Result<()> {
@@ -88,7 +88,7 @@ impl<'a> Device<'a> {
 			let format_properties = unsafe {
 				// TODO: add caching of format properties
 				self.instance.inner().get_physical_device_format_properties(
-					self.physical_device.handle(),
+					self.physical_device.handle,
 					format,
 				)
 			};
@@ -100,14 +100,9 @@ impl<'a> Device<'a> {
 			let linear_features =
 				format_properties.linear_tiling_features.contains(features);
 
-			// TODO: https://doc.rust-lang.org/std/primitive.bool.html#method.then_some
-			if tiling == ImageTiling::OPTIMAL && optimal_features
-				|| tiling == ImageTiling::LINEAR && linear_features
-			{
-				Some(format)
-			} else {
-				None
-			}
+			(tiling == ImageTiling::OPTIMAL && optimal_features
+				|| tiling == ImageTiling::LINEAR && linear_features)
+				.then(|| format)
 		})
 	}
 }

@@ -20,7 +20,7 @@ impl<'a> Allocator<'a> {
 			&gpu_allocator::vulkan::AllocatorCreateDesc {
 				instance: instance.inner().clone(),
 				device: device.inner().clone(),
-				physical_device: physical_device.handle(),
+				physical_device: physical_device.handle,
 				debug_settings: Default::default(),
 				buffer_device_address: true, // Ideally, check the BufferDeviceAddressFeatures struct.
 			},

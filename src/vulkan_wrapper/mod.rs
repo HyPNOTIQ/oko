@@ -1,22 +1,27 @@
 mod allocator;
-mod debug_messanger;
+#[cfg(debug_assertions)]
+pub mod debug_messanger;
 mod device;
+mod graphics_pipeline;
 mod image_view;
 mod instance;
-mod physical_device;
+mod pipeline;
+mod shader_module;
 mod surface;
-// mod swapchain;
+mod swapchain;
 
 pub use allocator::Allocator;
-pub use debug_messanger::DebugMessenger;
 pub use device::Device;
+pub use graphics_pipeline::GraphicsPipeline;
 pub use image_view::ImageView;
 pub use instance::Instance;
-pub use physical_device::PhysicalDevice;
+pub use instance::PhysicalDevice;
+pub use pipeline::Pipeline;
+pub use shader_module::ShaderModule;
 pub use surface::CreateSurface;
 pub use surface::Surface;
 pub use surface::SurfaceExtent;
-// pub use swapchain::Swapchain;
+pub use swapchain::Swapchain;
 
 pub type ExtensionName = *const std::os::raw::c_char;
 

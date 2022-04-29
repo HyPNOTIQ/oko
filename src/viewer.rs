@@ -1,12 +1,13 @@
 use super::vulkan_wrapper;
 use super::vulkan_wrapper::Allocator;
 use super::vulkan_wrapper::CreateSurface;
-use super::vulkan_wrapper::DebugMessenger;
 use super::vulkan_wrapper::Device;
+use super::vulkan_wrapper::GraphicsPipeline;
 use super::vulkan_wrapper::Instance;
 use super::vulkan_wrapper::PhysicalDevice;
+use super::vulkan_wrapper::ShaderModule;
 use super::vulkan_wrapper::Surface;
-// use super::vulkan_wrapper::Swapchain;
+use super::vulkan_wrapper::Swapchain;
 use anyhow::Result;
 use ash::vk;
 use gltf::Gltf;
@@ -43,7 +44,11 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	let instance = Instance::new(&instance_extensions, required_instance_version)?;
 
 	// Debug Messenger
-	let _debug_messenger = DebugMessenger::new(&instance, Some(vulkan_debug_callback))?;
+	#[cfg(debug_assertions)]
+	let _debug_messenger = super::vulkan_wrapper::debug_messanger::DebugMessenger::new(
+		&instance,
+		Some(vulkan_debug_callback),
+	)?;
 
 	//Surface
 	let surface = Surface::new(present_target, &instance)?;
@@ -51,15 +56,11 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	// Physical device
 	let physical_device = find_suitable_physical_device(&instance, &surface);
 
-	let (physical_device, graphics_queue_family_index) = physical_device.ok_or(
-		anyhow::anyhow!("The suitable physical device is not found!"),
-	)?;
+	let (physical_device, graphics_queue_family_index) = physical_device
+		.ok_or_else(|| anyhow::anyhow!("The suitable physical device is not found!"))?;
 
 	// Device
-	let device_extensions = [
-		ash::extensions::khr::Swapchain::name().as_ptr(),
-		// ash::extensions::khr::TimelineSemaphore::name().as_ptr(),
-	];
+	let device_extensions = [ash::extensions::khr::Swapchain::name().as_ptr()];
 
 	// Device
 	let queue_priorities = [1.0_f32];
@@ -71,17 +72,88 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	let device = Device::new(&instance, physical_device, &device_extensions, &queues)?;
 
 	// Allocator
-	let allocator = Allocator::new(&instance, &device, &physical_device)?;
+	let allocator = Allocator::new(&instance, &device, physical_device)?;
 	let mut allocator = RefCell::new(allocator);
 
 	// Swapchain
-	// let swapchain = Swapchain::<SurfaceOwner>::new(&instance, &device, &surface)?;
+	let swapchain = Swapchain::new(&instance, &device, &surface)?;
+	let surface_extent = swapchain.extent();
+
+	// vertex shader
+	let vertex_shader_module =
+		ShaderModule::new(&device, &gen_shader_path("geometry.vert"))?;
+
+	// fragment shader
+	let frag_shader_module =
+		ShaderModule::new(&device, &gen_shader_path("geometry.frag"))?;
+
+	// viewport state
+	let height = surface_extent.height as f32;
+	let view_ports = [vk::Viewport::builder()
+		.width(surface_extent.width as _)
+		.height(-height)
+		.y(height)
+		.max_depth(1.0)
+		.build()];
+
+	let scissors = [vk::Rect2D::builder().extent(surface_extent).build()];
+
+	let viewport_state_info = vk::PipelineViewportStateCreateInfo::builder()
+		.viewports(&view_ports)
+		.scissors(&scissors);
+
+	// multisample_state
+	let multisample_state_info = vk::PipelineMultisampleStateCreateInfo::builder()
+		.rasterization_samples(vk::SampleCountFlags::TYPE_1);
+
+	// rasterization_info
+	let rasterization_info = vk::PipelineRasterizationStateCreateInfo::builder()
+		.polygon_mode(vk::PolygonMode::FILL)
+		.cull_mode(vk::CullModeFlags::BACK)
+		.front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+		.line_width(1.0);
+
+	// color_blend_state
+	let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::builder()
+		.color_write_mask(
+			vk::ColorComponentFlags::R
+				| vk::ColorComponentFlags::G
+				| vk::ColorComponentFlags::B
+				| vk::ColorComponentFlags::A,
+		)
+		.blend_enable(false)
+		.build()];
+
+	let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+		.attachments(&color_blend_attachments);
+
+	let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+		// .stages(&shader_stage_create_infos)
+		// .input_assembly_state(&vertex_input_assembly_state_info)
+		// .vertex_input_state(&vertex_input_state_info)
+		.rasterization_state(&rasterization_info)
+		.color_blend_state(&color_blend_state)
+		.multisample_state(&multisample_state_info)
+		.viewport_state(&viewport_state_info)
+		// .render_pass(render_pass.handle())
+		// .layout(pipeline_layout.handle())
+		// .depth_stencil_state(&depth_stencil_state_info)
+		.build();
+
+	// let pipeline = GraphicsPipeline::new(&device, &graphics_pipeline_create_info)?;
+
+	// Geometry pipelines
+	// let geometry_pipelines = {
+	// 	// let mut geometry_pipelines;
+
+	// };
 
 	loop {
 		let mut stop = false;
 
 		for event in rx.try_iter() {
 			match event {
+				// Defer break to be sure all events processed
 				Event::Stop => stop = true,
 			}
 		}
@@ -91,6 +163,8 @@ pub fn run<SurfaceOwner: CreateSurface>(
 		}
 	}
 
+	device.wait_idle()?;
+
 	Ok(())
 }
 
@@ -98,48 +172,48 @@ fn find_suitable_physical_device<'a, SurfaceOwner>(
 	instance: &'a Instance,
 	surface: &Surface<SurfaceOwner>,
 ) -> Option<(&'a PhysicalDevice, u32)> {
-	let physical_devices = instance.physical_devices();
-
-	let is_physical_device_suitable = |physical_device: &'a PhysicalDevice| {
-		let queue_families_properties = physical_device.queue_families_properties();
-
-		let is_queue_suitable = |(queue_index, &queue_family_properties): (
-			usize,
-			&vk::QueueFamilyProperties,
-		)| {
-			let queue_index = queue_index as _;
-
-			let surface_support =
-				surface.physical_device_support(physical_device, queue_index);
-
-			let graphic_support = queue_family_properties
-				.queue_flags
-				.contains(vk::QueueFlags::GRAPHICS);
-
-			if graphic_support && surface_support {
-				Some(queue_index)
-			} else {
-				None
-			}
-		};
-
-		let graphics_queue_index = queue_families_properties
-			.iter()
-			.enumerate()
-			.find_map(is_queue_suitable);
-
-		if let Some(queue_index) = graphics_queue_index {
-			Some((physical_device, queue_index))
-		} else {
-			None
-		}
-	};
-
-	physical_devices
+	instance
+		.physical_devices()
 		.iter()
-		.find_map(is_physical_device_suitable)
+		.find_map(|physical_device| {
+			let queue_families_properties = &physical_device.queue_families_properties;
+
+			let graphics_queue_index = queue_families_properties
+				.iter()
+				.enumerate()
+				.find_map(|(queue_index, &queue_family_properties)| {
+					let queue_index = queue_index as _;
+
+					let surface_support =
+						surface.physical_device_support(physical_device, queue_index);
+
+					let graphic_support = queue_family_properties
+						.queue_flags
+						.contains(vk::QueueFlags::GRAPHICS);
+
+					if graphic_support && surface_support {
+						Some(queue_index)
+					} else {
+						None
+					}
+				});
+
+			graphics_queue_index.map(|queue_index| (physical_device, queue_index))
+		})
 }
 
+fn gen_shader_path(name: &str) -> PathBuf {
+	PathBuf::from("gen")
+		.join(if cfg!(debug_assertions) {
+			"debug"
+		} else {
+			"release"
+		})
+		.join("shaders")
+		.join(name)
+}
+
+#[cfg(debug_assertions)]
 unsafe extern "system" fn vulkan_debug_callback(
 	severity_flags: vk::DebugUtilsMessageSeverityFlagsEXT,
 	message_type_flags: vk::DebugUtilsMessageTypeFlagsEXT,

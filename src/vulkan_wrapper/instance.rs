@@ -1,5 +1,5 @@
 use {
-	super::{make_api_version, ExtensionName, PhysicalDevice},
+	super::{make_api_version, ExtensionName},
 	anyhow::Result,
 	ash::vk::{self, api_version_major, api_version_minor, api_version_patch},
 };
@@ -101,12 +101,12 @@ impl Instance {
 							.unwrap_or("unknown")
 					);
 
-					PhysicalDevice::new(
+					PhysicalDevice {
 						handle,
 						queue_families_properties,
 						properties,
 						features,
-					)
+					}
 				}
 			})
 			.collect();
@@ -125,4 +125,11 @@ impl Drop for Instance {
 			self.inner.destroy_instance(None);
 		}
 	}
+}
+
+pub struct PhysicalDevice {
+	pub handle: vk::PhysicalDevice,
+	pub queue_families_properties: Vec<vk::QueueFamilyProperties>,
+	pub properties: vk::PhysicalDeviceProperties,
+	pub features: vk::PhysicalDeviceFeatures,
 }

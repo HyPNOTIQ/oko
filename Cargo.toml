@@ -14,9 +14,11 @@ ash = "0.36.0"
 ash-window = "0.9.1"
 maplit = "1.0.2"
 gpu-allocator = "0.17.0"
+cstr = "0.2.10"
 
 [build-dependencies]
 anyhow = "1.0.57"
 hassle-rs = "0.9.0"
 walkdir = "2.3.2"
 shaderc = "0.8.0"
+cargo-emit = "0.2.1"

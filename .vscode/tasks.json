@@ -28,5 +28,20 @@
 			},
 			"label": "rust: cargo clippy"
 		},
+		{
+			"type": "cargo",
+			"command": "build",
+			"problemMatcher": [
+				"$rustc"
+			],
+			"presentation": {
+				"clear": true
+			},
+			"group": "build",
+			"label": "rust: cargo release",
+			"args": [
+				"--release"
+			]
+		},
 	]
 }

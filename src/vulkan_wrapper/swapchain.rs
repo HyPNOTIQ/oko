@@ -7,7 +7,7 @@ use {
 	},
 };
 
-pub struct Swapchain<'a, T: SurfaceExtent> {
+pub struct Swapchain<'a, T> {
 	format: Format,
 	extent: Extent2D,
 	handle: vk::SwapchainKHR,
@@ -21,8 +21,11 @@ impl<'a, T> Swapchain<'a, T> {
 	pub fn new(
 		instance: &'a Instance,
 		device: &'a Device,
-		surface: &Surface<T>,
-	) -> Result<Self> {
+		surface: &'a Surface<T>,
+	) -> Result<Self>
+	where
+		T: SurfaceExtent,
+	{
 		let extension =
 			ash::extensions::khr::Swapchain::new(instance.inner(), device.inner());
 
@@ -76,7 +79,7 @@ impl<'a, T> Swapchain<'a, T> {
 					.components(component_mapping)
 					.subresource_range(image_subresource_range);
 
-				ImageView::new(&device, &create_info)
+				ImageView::new(device, &create_info)
 			})
 			.collect::<Result<Vec<_>>>()?;
 
@@ -132,7 +135,7 @@ impl<'a, T> Swapchain<'a, T> {
 		}
 	}
 
-	fn get_surface_format(formats: &Vec<SurfaceFormatKHR>) -> Option<SurfaceFormatKHR> {
+	fn get_surface_format(formats: &[SurfaceFormatKHR]) -> Option<SurfaceFormatKHR> {
 		let desired_format = ash::vk::Format::B8G8R8A8_UNORM;
 		let desired_color_space = ash::vk::ColorSpaceKHR::SRGB_NONLINEAR;
 
@@ -140,7 +143,7 @@ impl<'a, T> Swapchain<'a, T> {
 			format.format == desired_format && format.color_space == desired_color_space
 		});
 
-		if let None = format {
+		if format.is_none() {
 			formats.first().copied()
 		} else {
 			format
@@ -176,15 +179,9 @@ impl<'a, T> Swapchain<'a, T> {
 		}
 	}
 
-	fn get_present_mode(present_modes: &Vec<ash::vk::PresentModeKHR>) -> PresentModeKHR {
-		// TODO: https://doc.rust-lang.org/std/primitive.bool.html#method.then_some
-		let find_present_mode = |present_mode| {
-			if present_modes.contains(present_mode) {
-				Some(present_mode).copied()
-			} else {
-				None
-			}
-		};
+	fn get_present_mode(present_modes: &[ash::vk::PresentModeKHR]) -> PresentModeKHR {
+		let find_present_mode =
+			|present_mode| present_modes.contains(present_mode).then(|| *present_mode);
 
 		if let Some(present_mode) = find_present_mode(&PresentModeKHR::MAILBOX) {
 			present_mode

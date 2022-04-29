@@ -22,7 +22,7 @@ impl<'a, T> Surface<'a, T> {
 	{
 		let extension = khr::Surface::new(instance.entry(), instance.inner());
 
-		let handle = owner.create_surface(&instance)?;
+		let handle = owner.create_surface(instance)?;
 
 		let surface = Self {
 			extension,
@@ -52,16 +52,13 @@ impl<'a, T> Surface<'a, T> {
 	) -> bool {
 		let support = unsafe {
 			self.extension.get_physical_device_surface_support(
-				physical_device.handle(),
+				physical_device.handle,
 				queue_index,
 				self.handle,
 			)
 		};
 
-		match support {
-			Ok(support) => support,
-			Err(_) => false,
-		}
+		support.unwrap_or(false)
 	}
 
 	pub fn capabilities(
@@ -70,7 +67,7 @@ impl<'a, T> Surface<'a, T> {
 	) -> Result<vk::SurfaceCapabilitiesKHR> {
 		let capabilities = unsafe {
 			self.extension.get_physical_device_surface_capabilities(
-				physical_device.handle(),
+				physical_device.handle,
 				self.handle,
 			)?
 		};
@@ -84,7 +81,7 @@ impl<'a, T> Surface<'a, T> {
 	) -> Result<Vec<vk::SurfaceFormatKHR>> {
 		let formats = unsafe {
 			self.extension.get_physical_device_surface_formats(
-				physical_device.handle(),
+				physical_device.handle,
 				self.handle,
 			)?
 		};
@@ -98,7 +95,7 @@ impl<'a, T> Surface<'a, T> {
 	) -> Result<Vec<vk::PresentModeKHR>> {
 		let present_modes = unsafe {
 			self.extension.get_physical_device_surface_present_modes(
-				physical_device.handle(),
+				physical_device.handle,
 				self.handle,
 			)?
 		};
