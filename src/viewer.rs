@@ -13,7 +13,6 @@ use ash::vk;
 use gltf::Gltf;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Receiver;
 
 pub enum Event {
 	Stop,
@@ -24,10 +23,12 @@ pub struct LaunchConfig {
 	pub scene_index: usize,
 }
 
+const SHADER_ENTRY_POINT: &'static std::ffi::CStr = cstr::cstr!("main");
+
 pub fn run<SurfaceOwner: CreateSurface>(
 	present_target: SurfaceOwner,
 	config: LaunchConfig,
-	rx: Receiver<Event>,
+	rx: std::sync::mpsc::Receiver<Event>,
 ) -> Result<()> {
 	let input_file = Path::new(&config.input_file);
 	let gltf = Gltf::open(input_file)?;
@@ -35,7 +36,10 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	let surface_required_extension = present_target.required_extensions()?;
 
 	// Instance
-	let instance_extensions = [ash::extensions::ext::DebugUtils::name().as_ptr()];
+	let instance_extensions = [
+		#[cfg(debug_assertions)]
+		ash::extensions::ext::DebugUtils::name().as_ptr(),
+	];
 
 	let instance_extensions =
 		[&instance_extensions[..], &surface_required_extension[..]].concat();
@@ -53,15 +57,13 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	//Surface
 	let surface = Surface::new(present_target, &instance)?;
 
-	// Physical device
-	let physical_device = find_suitable_physical_device(&instance, &surface);
-
-	let (physical_device, graphics_queue_family_index) = physical_device
-		.ok_or_else(|| anyhow::anyhow!("The suitable physical device is not found!"))?;
+	// Physical device and main queue
+	let (physical_device, graphics_queue_family_index) =
+		find_suitable_physical_device(&instance, &surface).ok_or_else(|| {
+			anyhow::anyhow!("The suitable physical device is not found!")
+		})?;
 
 	// Device
-	let device_extensions = [ash::extensions::khr::Swapchain::name().as_ptr()];
-
 	// Device
 	let queue_priorities = [1.0_f32];
 	let queues = maplit::hashmap! {
