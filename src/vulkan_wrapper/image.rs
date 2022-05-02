@@ -1,8 +1,6 @@
 use super::Allocator;
-// use super::AllocatorRef;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc};
 use gpu_allocator::MemoryLocation;
-use std::cell::RefCell;
 use {super::Device, anyhow::Result, ash::vk};
 
 pub struct Image<'a> {

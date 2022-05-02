@@ -1,7 +1,6 @@
 use super::Allocator;
 use crate::slice_from_ref;
 use gpu_allocator::{vulkan::Allocation, vulkan::AllocationCreateDesc};
-use std::borrow::BorrowMut;
 use {super::Device, anyhow::Result, ash::vk};
 
 pub struct Buffer<'a> {
@@ -118,6 +117,13 @@ impl<'a> Buffer<'a> {
 				.inner()
 				.flush_mapped_memory_ranges(slice_from_ref(&ranges))?
 		};
+
+		Ok(())
+	}
+
+	pub fn copy_into_n_flush<T: Sized>(&mut self, data: &T) -> Result<()> {
+		self.copy_into(data)?;
+		self.flush()?;
 
 		Ok(())
 	}

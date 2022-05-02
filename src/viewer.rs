@@ -400,7 +400,8 @@ pub fn run<SurfaceOwner: CreateSurface>(
 				"",
 			)?;
 
-			Ok(Some(buffer))
+			// Ok(Some(buffer))
+			Ok(buffer)
 		})
 		.take(swapchain_image_count)
 		.collect::<Result<Vec<_>>>()?;
@@ -476,12 +477,8 @@ pub fn run<SurfaceOwner: CreateSurface>(
 			mt: projection * view,
 		};
 
-		let mut view_projection_beffer =
-			view_projection_buffers[current_index].take().unwrap();
-
-		view_projection_beffer.copy_into(&view_projection)?;
-		view_projection_beffer.flush()?;
-		view_projection_buffers[current_index].replace(view_projection_beffer);
+		view_projection_buffers[current_index]
+			.copy_into_n_flush(&view_projection)?;
 
 		queue.submit(
 			&command_buffers[next_image as usize],
@@ -702,13 +699,13 @@ unsafe extern "system" fn vulkan_debug_callback(
 			_ => "[Unknown]",
 		};
 
-		let message = format!("{} {}", message_type, message);
+		let message = format!("{message_type} {message}");
 
 		match severity_flags {
-			DebugUtilsMessageSeverityFlagsEXT::WARNING => warn!("{}", message),
-			DebugUtilsMessageSeverityFlagsEXT::ERROR => error!("{}", message),
-			DebugUtilsMessageSeverityFlagsEXT::INFO => info!("{}", message),
-			_ => trace!("{}", message),
+			DebugUtilsMessageSeverityFlagsEXT::WARNING => warn!("{message}"),
+			DebugUtilsMessageSeverityFlagsEXT::ERROR => error!("{message}"),
+			DebugUtilsMessageSeverityFlagsEXT::INFO => info!("{message}"),
+			_ => trace!("{message}"),
 		};
 	} else {
 		error!("Vulkan debug callback: unable to get message data!");

@@ -93,7 +93,7 @@ fn gen_shaderc_common_options<'a>(
 	shaderc_options.set_include_callback(
 		move |requested_file_name, _, source_file_name, _| {
 			let requested_file_name =
-				format!("./{}/{}", SHADERS_FOLDER, requested_file_name);
+				format!("./{SHADERS_FOLDER}/{requested_file_name}");
 
 			match include_handler.borrow_mut().load(&requested_file_name) {
 				Some(content) => Ok(ResolvedInclude {
@@ -101,9 +101,7 @@ fn gen_shaderc_common_options<'a>(
 					content,
 				}),
 				None => Err(format!(
-					"Requested file \"{}\" for shader \"{}\" not found",
-					requested_file_name, source_file_name
-				)),
+					"Requested file \"{requested_file_name}\" for shader \"{source_file_name}\" not found")),
 			}
 		},
 	);
@@ -154,7 +152,6 @@ fn main() -> Result<()> {
 		include_handler.clone(),
 		[(FRAGMENT_DEFINE, None)].as_slice(),
 	)?;
-	// shaderc_fragment_options.add_macro_definition(FRAGMENT_DEFINE, None);
 
 	fs::create_dir_all(GEN_FOLDER)?;
 	fs::remove_dir_all(GEN_FOLDER)?;
@@ -243,11 +240,11 @@ fn main() -> Result<()> {
 							let error = dxc_library
 								.get_blob_as_string(&error_buffer.into())?;
 
-							bail!("{}", error);
+							bail!("{error}");
 						}
 						Ok(result) => {
 							let result = result.get_result()?;
-							let data: &[u8] = result.as_slice();
+							let data = result.as_slice::<u8>();
 							write_result(data)?;
 						}
 					};

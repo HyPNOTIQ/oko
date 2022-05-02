@@ -75,7 +75,7 @@ fn main() -> Result<()> {
 		let current_thread = thread::current();
 		let thread_name = current_thread.name().unwrap_or_default();
 
-		log::info!("{} thread started!", thread_name);
+		log::info!("{thread_name} thread started!");
 
 		let config = LaunchConfig {
 			input_file,
@@ -114,7 +114,7 @@ fn main() -> Result<()> {
 			},
 			Event::UserEvent(event) => match event {
 				CustomEvent::Err(error) => {
-					log::error!("{}", error);
+					log::error!("{error}");
 					exit();
 				}
 			},
