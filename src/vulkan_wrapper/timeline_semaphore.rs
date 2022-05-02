@@ -1,3 +1,4 @@
+use crate::slice_from_ref;
 use {super::Device, anyhow::Result, ash::vk};
 
 pub struct TimelineSemaphore<'a> {
@@ -7,13 +8,15 @@ pub struct TimelineSemaphore<'a> {
 
 impl<'a> TimelineSemaphore<'a> {
 	pub fn new(device: &'a Device, initial_value: u64) -> Result<Self> {
-		let mut type_create_info =
-			vk::SemaphoreTypeCreateInfo::builder().initial_value(initial_value);
+		let mut type_create_info = vk::SemaphoreTypeCreateInfo::builder()
+			.initial_value(initial_value)
+			.semaphore_type(vk::SemaphoreType::TIMELINE);
 
 		let create_info =
 			vk::SemaphoreCreateInfo::builder().push_next(&mut type_create_info);
 
-		let handle = unsafe { device.inner().create_semaphore(&create_info, None)? };
+		let handle =
+			unsafe { device.inner().create_semaphore(&create_info, None)? };
 
 		let semaphore = Self { handle, device };
 
@@ -34,13 +37,19 @@ impl<'a> TimelineSemaphore<'a> {
 		Ok(())
 	}
 
+	pub fn wait_max_timeout(&self, value: u64) -> Result<()> {
+		self.wait(value, u64::MAX)?;
+
+		Ok(())
+	}
+
 	pub fn wait(&self, value: u64, timeout: u64) -> Result<()> {
-		let semaphores = core::slice::from_ref(&self.handle);
-		let values = core::slice::from_ref(&value);
+		let semaphores = slice_from_ref(&self.handle);
+		let values = slice_from_ref(&value);
 
 		let info = vk::SemaphoreWaitInfo::builder()
 			.values(values)
-			.semaphores(&semaphores);
+			.semaphores(semaphores);
 
 		unsafe { self.device.inner().wait_semaphores(&info, timeout)? };
 

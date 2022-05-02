@@ -1,0 +1,22 @@
+#ifndef GEOMETRY_COMMON_INCLUDED
+#define GEOMETRY_COMMON_INCLUDED
+
+#include "defines"
+
+_constant_id(0) const bool has_color = false;
+_constant_id(1) const bool has_normal = false;
+_constant_id(2) const bool has_tex_coord_0 = false;
+
+#if defined(VERTEX)
+struct SVertexOutput
+#elif defined(FRAGMENT)
+struct SFragmentInput
+#endif
+{
+	_location(0) float4 Color : COLOR;
+	_location(1) float3 Normal : NORMAL;
+	_location(2) float2 TexCoord_0 : TEXCOORD_0;
+	float4 Position : SV_Position;
+};
+
+#endif

@@ -1,3 +1,4 @@
+use super::Buffer;
 use super::Pipeline;
 use {super::Device, anyhow::Result, ash::vk};
 
@@ -11,18 +12,19 @@ impl<'a> CommandPool<'a> {
 		device: &'a Device,
 		create_info: &vk::CommandPoolCreateInfo,
 	) -> Result<Self> {
-		let handle = unsafe { device.inner().create_command_pool(create_info, None)? };
+		let handle =
+			unsafe { device.inner().create_command_pool(create_info, None)? };
 
 		let command_pool = Self { handle, device };
 
 		Ok(command_pool)
 	}
 
-	pub fn allocate_command_buffers(
+	fn allocate_command_buffers_inner(
 		&self,
 		count: u32,
 		level: vk::CommandBufferLevel,
-	) -> Result<Vec<CommandBuffer>> {
+	) -> Result<Vec<vk::CommandBuffer>> {
 		let info = vk::CommandBufferAllocateInfo::builder()
 			.command_pool(self.handle)
 			.level(level)
@@ -31,16 +33,63 @@ impl<'a> CommandPool<'a> {
 		let command_buffers =
 			unsafe { self.device.inner().allocate_command_buffers(&info)? };
 
+		Ok(command_buffers)
+	}
+
+	fn construct_command_buffer(
+		&self,
+		command_buffer_handle: vk::CommandBuffer,
+	) -> CommandBuffer {
+		CommandBuffer {
+			device: self.device,
+			_command_pool: self,
+			handle: command_buffer_handle,
+		}
+	}
+
+	pub fn allocate_command_buffers(
+		&self,
+		count: u32,
+		level: vk::CommandBufferLevel,
+	) -> Result<Vec<CommandBuffer>> {
+		let command_buffers =
+			self.allocate_command_buffers_inner(count, level)?;
+
 		let command_buffers = command_buffers
 			.iter()
-			.map(|command_buffer| CommandBuffer::new(self.device, self, *command_buffer))
+			.map(|command_buffer| {
+				self.construct_command_buffer(*command_buffer)
+			})
 			.collect::<Vec<_>>();
 
 		Ok(command_buffers)
 	}
 
+	pub fn device(&self) -> &Device {
+		self.device
+	}
+
+	pub fn allocate_command_buffer(
+		&self,
+		level: vk::CommandBufferLevel,
+	) -> Result<CommandBuffer> {
+		let command_buffers = self.allocate_command_buffers_inner(1, level)?;
+		Ok(self.construct_command_buffer(*command_buffers.first().unwrap()))
+	}
+
 	pub fn handle(&self) -> vk::CommandPool {
 		self.handle
+	}
+
+	pub fn reset(&self) -> Result<()> {
+		unsafe {
+			self.device.inner().reset_command_pool(
+				self.handle,
+				vk::CommandPoolResetFlags::empty(),
+			)?
+		};
+
+		Ok(())
 	}
 }
 
@@ -54,40 +103,15 @@ impl<'a> Drop for CommandPool<'a> {
 pub struct CommandBuffer<'a> {
 	handle: vk::CommandBuffer,
 	device: &'a Device<'a>,
-	command_pool: &'a CommandPool<'a>,
+	_command_pool: &'a CommandPool<'a>,
 }
 
 impl<'a> CommandBuffer<'a> {
-	fn new(
-		device: &'a Device,
-		command_pool: &'a CommandPool<'a>,
-		handle: vk::CommandBuffer,
-	) -> Self {
-		let command_buffer = Self {
-			handle,
-			command_pool,
-			device,
-		};
-
-		command_buffer
-	}
-
-	pub fn reset(&self) -> Result<()> {
-		unsafe {
-			self.device.inner().reset_command_pool(
-				self.command_pool.handle(),
-				vk::CommandPoolResetFlags::empty(),
-			)?
-		};
-
-		Ok(())
-	}
-
 	pub fn begin(&self, info: &vk::CommandBufferBeginInfo) -> Result<()> {
 		unsafe {
 			self.device
 				.inner()
-				.begin_command_buffer(self.handle, &info)?
+				.begin_command_buffer(self.handle, info)?
 		};
 
 		Ok(())
@@ -123,9 +147,12 @@ impl<'a> CommandBuffer<'a> {
 		offsets: &[vk::DeviceSize],
 	) {
 		unsafe {
-			self.device
-				.inner()
-				.cmd_bind_vertex_buffers(self.handle, 0, buffers, offsets);
+			self.device.inner().cmd_bind_vertex_buffers(
+				self.handle,
+				0,
+				buffers,
+				offsets,
+			);
 		}
 	}
 
@@ -139,24 +166,24 @@ impl<'a> CommandBuffer<'a> {
 		}
 	}
 
-	// pub fn copy_buffer(&self, src_buffer: &Buffer, dst_buffer: &Buffer) {
-	// 	debug_assert!(src_buffer.size() <= dst_buffer.size());
+	pub fn copy_buffer(&self, src_buffer: &Buffer, dst_buffer: &Buffer) {
+		debug_assert!(src_buffer.size() <= dst_buffer.size());
 
-	// 	let regions = [vk::BufferCopy::builder()
-	// 		.src_offset(src_buffer.offset() as _)
-	// 		.dst_offset(dst_buffer.offset() as _)
-	// 		.size(src_buffer.size() as _)
-	// 		.build()];
+		let regions = [vk::BufferCopy::builder()
+			.src_offset(src_buffer.offset() as _)
+			.dst_offset(dst_buffer.offset() as _)
+			.size(src_buffer.size() as _)
+			.build()];
 
-	// 	unsafe {
-	// 		self.device.inner().cmd_copy_buffer(
-	// 			self.handle,
-	// 			src_buffer.handle(),
-	// 			dst_buffer.handle(),
-	// 			&regions,
-	// 		)
-	// 	}
-	// }
+		unsafe {
+			self.device.inner().cmd_copy_buffer(
+				self.handle,
+				src_buffer.handle(),
+				dst_buffer.handle(),
+				&regions,
+			)
+		}
+	}
 
 	pub fn begin_render_pass(
 		&self,
@@ -164,9 +191,11 @@ impl<'a> CommandBuffer<'a> {
 		contents: vk::SubpassContents,
 	) {
 		unsafe {
-			self.device
-				.inner()
-				.cmd_begin_render_pass(self.handle, &info, contents)
+			self.device.inner().cmd_begin_render_pass(
+				self.handle,
+				info,
+				contents,
+			)
 		}
 	}
 

@@ -1,3 +1,4 @@
+use crate::slice_from_ref;
 use ash::vk;
 use {
 	super::{Device, Pipeline},
@@ -17,7 +18,7 @@ impl<'a> GraphicsPipeline<'a> {
 		let pipelines = unsafe {
 			device.inner().create_graphics_pipelines(
 				vk::PipelineCache::null(),
-				core::slice::from_ref(create_info),
+				slice_from_ref(create_info),
 				None,
 			)
 		};

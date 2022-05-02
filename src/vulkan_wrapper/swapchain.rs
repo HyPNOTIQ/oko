@@ -1,9 +1,12 @@
 use {
-	super::{Device, ImageView, Instance, Surface, SurfaceExtent},
+	super::{
+		Device, ImageView, Instance, Queue, Semaphore, Surface, SurfaceExtent,
+	},
 	anyhow::Result,
 	ash::vk,
 	ash::vk::{
-		Extent2D, Format, PresentModeKHR, SurfaceCapabilitiesKHR, SurfaceFormatKHR,
+		Extent2D, Format, PresentModeKHR, SurfaceCapabilitiesKHR,
+		SurfaceFormatKHR,
 	},
 };
 
@@ -26,12 +29,15 @@ impl<'a, T> Swapchain<'a, T> {
 	where
 		T: SurfaceExtent,
 	{
-		let extension =
-			ash::extensions::khr::Swapchain::new(instance.inner(), device.inner());
+		let extension = ash::extensions::khr::Swapchain::new(
+			instance.inner(),
+			device.inner(),
+		);
 
 		let physical_device = device.physical_device();
 		let surface_capabilities = surface.capabilities(physical_device)?;
-		let min_images_count = Self::get_min_images_count(&surface_capabilities);
+		let min_images_count =
+			Self::get_min_images_count(&surface_capabilities);
 		let surface_present_modes = surface.present_modes(physical_device)?;
 		let surface_formats = surface.formats(physical_device)?;
 		let surface_format = Self::get_surface_format(&surface_formats);
@@ -64,13 +70,14 @@ impl<'a, T> Swapchain<'a, T> {
 			.map(|&image| {
 				let component_mapping = vk::ComponentMapping::builder().build();
 
-				let image_subresource_range = vk::ImageSubresourceRange::builder()
-					.aspect_mask(vk::ImageAspectFlags::COLOR)
-					.base_mip_level(0)
-					.level_count(1)
-					.base_array_layer(0)
-					.layer_count(1)
-					.build();
+				let image_subresource_range =
+					vk::ImageSubresourceRange::builder()
+						.aspect_mask(vk::ImageAspectFlags::COLOR)
+						.base_mip_level(0)
+						.level_count(1)
+						.base_array_layer(0)
+						.layer_count(1)
+						.build();
 
 				let create_info = vk::ImageViewCreateInfo::builder()
 					.image(image)
@@ -112,15 +119,27 @@ impl<'a, T> Swapchain<'a, T> {
 		self.image_views.len()
 	}
 
+	pub fn acquire_next_image_max_timeout(
+		&self,
+		semaphore: &Semaphore,
+		fence: vk::Fence,
+	) -> ash::prelude::VkResult<(u32, bool)> {
+		self.acquire_next_image(semaphore, fence, u64::MAX)
+	}
+
 	pub fn acquire_next_image(
 		&self,
-		semaphore: vk::Semaphore,
+		semaphore: &Semaphore,
 		fence: vk::Fence,
 		timeout: u64,
 	) -> ash::prelude::VkResult<(u32, bool)> {
 		unsafe {
-			self.extension
-				.acquire_next_image(self.handle, timeout, semaphore, fence)
+			self.extension.acquire_next_image(
+				self.handle,
+				timeout,
+				semaphore.handle(),
+				fence,
+			)
 		}
 	}
 
@@ -135,12 +154,15 @@ impl<'a, T> Swapchain<'a, T> {
 		}
 	}
 
-	fn get_surface_format(formats: &[SurfaceFormatKHR]) -> Option<SurfaceFormatKHR> {
+	fn get_surface_format(
+		formats: &[SurfaceFormatKHR],
+	) -> Option<SurfaceFormatKHR> {
 		let desired_format = ash::vk::Format::B8G8R8A8_UNORM;
 		let desired_color_space = ash::vk::ColorSpaceKHR::SRGB_NONLINEAR;
 
 		let format = formats.iter().copied().find(|format| {
-			format.format == desired_format && format.color_space == desired_color_space
+			format.format == desired_format
+				&& format.color_space == desired_color_space
 		});
 
 		if format.is_none() {
@@ -179,17 +201,45 @@ impl<'a, T> Swapchain<'a, T> {
 		}
 	}
 
-	fn get_present_mode(present_modes: &[ash::vk::PresentModeKHR]) -> PresentModeKHR {
-		let find_present_mode =
-			|present_mode| present_modes.contains(present_mode).then(|| *present_mode);
+	fn get_present_mode(
+		present_modes: &[ash::vk::PresentModeKHR],
+	) -> PresentModeKHR {
+		let find_present_mode = |present_mode| {
+			present_modes.contains(present_mode).then(|| *present_mode)
+		};
 
-		if let Some(present_mode) = find_present_mode(&PresentModeKHR::MAILBOX) {
+		if let Some(present_mode) = find_present_mode(&PresentModeKHR::MAILBOX)
+		{
 			present_mode
-		} else if let Some(present_mode) = find_present_mode(&PresentModeKHR::IMMEDIATE) {
+		} else if let Some(present_mode) =
+			find_present_mode(&PresentModeKHR::IMMEDIATE)
+		{
 			present_mode
 		} else {
 			PresentModeKHR::FIFO
 		}
+	}
+
+	pub fn present(
+		&self,
+		queue: &Queue,
+		image_index: u32,
+		wait_semaphores: &[vk::Semaphore],
+	) -> Result<bool> {
+		let image_indices = [image_index];
+		let swapchains = [self.handle];
+
+		let present_info = vk::PresentInfoKHR::builder()
+			.image_indices(&image_indices)
+			.swapchains(&swapchains)
+			.wait_semaphores(wait_semaphores);
+
+		let result = unsafe {
+			self.extension
+				.queue_present(queue.handle(), &present_info)?
+		};
+
+		Ok(result)
 	}
 }
 

@@ -11,7 +11,10 @@ pub struct Instance {
 }
 
 impl Instance {
-	pub fn new(extensions: &[ExtensionName], required_version: u32) -> Result<Self> {
+	pub fn new(
+		extensions: &[ExtensionName],
+		required_version: u32,
+	) -> Result<Self> {
 		let entry = unsafe { ash::Entry::load()? };
 
 		let required_version_major = api_version_major(required_version);
@@ -21,7 +24,11 @@ impl Instance {
 		let version_1_0 = make_api_version(1, 0, 0);
 
 		let version_1_0_x_requested = version_1_0
-			== make_api_version(required_version_major, required_version_minor, 0);
+			== make_api_version(
+				required_version_major,
+				required_version_minor,
+				0,
+			);
 
 		// It is not possible to check path part for 1.0.x vulkan, so ignore it
 		let required_version = if version_1_0_x_requested {
@@ -37,7 +44,7 @@ impl Instance {
 
 		let vulkan_api_version = if vulkan_api_version < required_version {
 			let error = anyhow::anyhow!(
-				"The required vulkan version {}.{}.{} is not available!",
+				"The required vulkan version {}.{}.{} is not available",
 				required_version_major,
 				required_version_minor,
 				required_version_patch
@@ -48,7 +55,8 @@ impl Instance {
 			Ok(required_version)
 		}?;
 
-		let app_info = vk::ApplicationInfo::builder().api_version(vulkan_api_version);
+		let app_info =
+			vk::ApplicationInfo::builder().api_version(vulkan_api_version);
 
 		let create_info = vk::InstanceCreateInfo::builder()
 			.application_info(&app_info)
@@ -82,23 +90,30 @@ impl Instance {
 		&self.inner
 	}
 
-	fn collect_physical_devices(instance: &ash::Instance) -> Result<Vec<PhysicalDevice>> {
-		let physical_devices = unsafe { instance.enumerate_physical_devices()? };
+	fn collect_physical_devices(
+		instance: &ash::Instance,
+	) -> Result<Vec<PhysicalDevice>> {
+		let physical_devices =
+			unsafe { instance.enumerate_physical_devices()? };
 
 		let physical_devices: Vec<_> = physical_devices
 			.iter()
 			.map(|&handle| -> PhysicalDevice {
 				unsafe {
-					let properties = instance.get_physical_device_properties(handle);
-					let queue_families_properties =
-						instance.get_physical_device_queue_family_properties(handle);
-					let features = instance.get_physical_device_features(handle);
+					let properties =
+						instance.get_physical_device_properties(handle);
+					let queue_families_properties = instance
+						.get_physical_device_queue_family_properties(handle);
+					let features =
+						instance.get_physical_device_features(handle);
 
 					log::info!(
 						"Physical device collected; name: {}",
-						::std::ffi::CStr::from_ptr(properties.device_name.as_ptr())
-							.to_str()
-							.unwrap_or("unknown")
+						::std::ffi::CStr::from_ptr(
+							properties.device_name.as_ptr()
+						)
+						.to_str()
+						.unwrap_or("unknown")
 					);
 
 					PhysicalDevice {

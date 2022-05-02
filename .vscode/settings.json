@@ -1,3 +1,7 @@
 {
-    "debug.allowBreakpointsEverywhere": true,
+	"debug.allowBreakpointsEverywhere": true,
+	"files.associations": {
+		"geometry_common": "cpp",
+		"defines": "cpp"
+	},
 }

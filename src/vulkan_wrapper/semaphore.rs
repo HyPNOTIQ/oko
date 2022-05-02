@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use {super::Device, anyhow::Result, ash::vk};
 
 pub struct Semaphore<'a> {

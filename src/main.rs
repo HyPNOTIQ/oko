@@ -4,6 +4,7 @@ mod wsi;
 
 use anyhow::{anyhow, Result};
 use clap::{Arg, Command};
+use core::slice::from_ref as slice_from_ref;
 use std::{
 	path::PathBuf,
 	thread::{self},
@@ -51,7 +52,7 @@ fn main() -> Result<()> {
 	let input_file = PathBuf::from(input_file);
 
 	let scene_index = if let Some(scene_index) = args.value_of("INDEX") {
-		scene_index.parse::<usize>()? //todo
+		scene_index.parse::<usize>()? // todo
 	} else {
 		DEFAULT_SCENE_INDEX
 	};

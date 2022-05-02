@@ -16,6 +16,7 @@ impl<'a> Device<'a> {
 		instance: &'a Instance,
 		physical_device: &'a PhysicalDevice,
 		extensions: &[ExtensionName],
+		// features: &vk::PhysicalDeviceFeatures,
 		queues: &HashMap<u32, &[f32]>,
 	) -> Result<Self> {
 		let device_queue_create_info = queues
@@ -105,8 +106,6 @@ impl<'a> Device<'a> {
 
 impl<'a> Drop for Device<'a> {
 	fn drop(&mut self) {
-		// self.allocator.destroy();
-
 		unsafe {
 			self.inner.destroy_device(None);
 		}

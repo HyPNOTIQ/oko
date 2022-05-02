@@ -1,6 +1,9 @@
+use shaderc::ResolvedInclude;
+use std::{cell::RefCell, rc::Rc};
 use {
 	anyhow::{anyhow, bail, Result},
 	hassle_rs::wrapper::Dxc,
+	std::collections::hash_map::HashMap,
 	std::{fs, path::Path},
 };
 
@@ -20,15 +23,57 @@ const FRAGMENT_EXTENSION: &str = "frag";
 const HLSL_EXTENSION: &str = "hlsl";
 const GLSL_EXTENSION: &str = "glsl";
 
+const HLSL_DEFINE: &str = "HLSL";
+const GLSL_DEFINE: &str = "GLSL";
+
 const VERTEX_DEFINE: &str = "VERTEX";
 const FRAGMENT_DEFINE: &str = "FRAGMENT";
 
 const GEN_FOLDER: &str = "gen";
+const SHADERS_FOLDER: &str = "shaders";
 const SHADER_ENTRY_POINT: &str = "main";
 
-fn gen_shaderc_common_options<'a>() -> Result<shaderc::CompileOptions<'a>> {
+type IncludeDictionary = HashMap<String, String>;
+
+struct IncludeHandler {
+	dictionary: IncludeDictionary,
+}
+
+impl IncludeHandler {
+	pub fn new() -> Self {
+		Self {
+			dictionary: IncludeDictionary::new(),
+		}
+	}
+
+	fn load(&mut self, filename: &str) -> Option<String> {
+		match self.dictionary.get(filename) {
+			Some(data) => Some(data.to_owned()),
+			None => {
+				let data = fs::read_to_string(&filename).ok();
+
+				data.to_owned().and_then(|data| {
+					self.dictionary.insert(filename.to_owned(), data)
+				});
+
+				data
+			}
+		}
+	}
+}
+
+impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
+	fn load_source(&mut self, filename: String) -> Option<String> {
+		self.load(&filename)
+	}
+}
+
+fn gen_shaderc_common_options<'a>(
+	include_handler: Rc<RefCell<IncludeHandler>>,
+	macro_definitions: &[(&str, Option<&str>)],
+) -> Result<shaderc::CompileOptions<'a>> {
 	let mut shaderc_options = shaderc::CompileOptions::new()
-		.ok_or_else(|| anyhow!("shaderc options initialization is failed!"))?;
+		.ok_or_else(|| anyhow!("shaderc options initialization is failed"))?;
 
 	shaderc_options.set_warnings_as_errors();
 	shaderc_options.set_optimization_level(if cfg!(debug_assertions) {
@@ -39,6 +84,29 @@ fn gen_shaderc_common_options<'a>() -> Result<shaderc::CompileOptions<'a>> {
 
 	#[cfg(debug_assertions)]
 	shaderc_options.set_generate_debug_info();
+	shaderc_options.add_macro_definition(GLSL_DEFINE, None);
+
+	for (key, value) in macro_definitions {
+		shaderc_options.add_macro_definition(key, *value);
+	}
+
+	shaderc_options.set_include_callback(
+		move |requested_file_name, _, source_file_name, _| {
+			let requested_file_name =
+				format!("./{}/{}", SHADERS_FOLDER, requested_file_name);
+
+			match include_handler.borrow_mut().load(&requested_file_name) {
+				Some(content) => Ok(ResolvedInclude {
+					resolved_name: requested_file_name,
+					content,
+				}),
+				None => Err(format!(
+					"Requested file \"{}\" for shader \"{}\" not found",
+					requested_file_name, source_file_name
+				)),
+			}
+		},
+	);
 
 	Ok(shaderc_options)
 }
@@ -47,31 +115,46 @@ fn main() -> Result<()> {
 	cargo_emit::rerun_if_env_changed!("PROFILE");
 	cargo_emit::rerun_if_changed!("shaders");
 
+	let include_handler = Rc::new(RefCell::new(IncludeHandler::new()));
+
 	// DXC
 	let dxc = Dxc::new(None)?;
 	let dxc_compiler = dxc.create_compiler()?;
 	let dxc_library = dxc.create_library()?;
 
-	// -spirv => Generate SPIR-V code
-	// -WX => Treat warnings as errors
-	// -Od => Disable optimizations
-	// -Zi => Enable debug information. Cannot be used together with -Zs
+	let dxc_args = [
+		[
+			"-spirv", // Generate SPIR-V code
+			"-WX",    // Treat warnings as errors
+		]
+		.as_slice(),
+		if cfg!(debug_assertions) {
+			[
+				"-Od", // Disable optimizations
+				"-Zi", // Enable debug information. Cannot be used together with -Zs
+			]
+			.as_slice()
+		} else {
+			[].as_slice()
+		},
+	]
+	.concat();
 	// "dxc --help" for more info
-	let dxc_args = if cfg!(debug_assertions) {
-		["-spirv", "-WX", "-Od", "-Zi"].as_slice()
-	} else {
-		["-spirv", "-WX"].as_slice()
-	};
 
 	// shaderc
 	let shaderc_compiler = shaderc::Compiler::new()
-		.ok_or_else(|| anyhow!("shaderc initialization is failed!"))?;
+		.ok_or_else(|| anyhow!("shaderc initialization is failed"))?;
 
-	let mut shaderc_vertex_options = gen_shaderc_common_options()?;
-	shaderc_vertex_options.add_macro_definition(VERTEX_DEFINE, None);
+	let shaderc_vertex_options = gen_shaderc_common_options(
+		include_handler.clone(),
+		[(FRAGMENT_DEFINE, None)].as_slice(),
+	)?;
 
-	let mut shaderc_fragment_options = gen_shaderc_common_options()?;
-	shaderc_fragment_options.add_macro_definition(FRAGMENT_DEFINE, None);
+	let shaderc_fragment_options = gen_shaderc_common_options(
+		include_handler.clone(),
+		[(FRAGMENT_DEFINE, None)].as_slice(),
+	)?;
+	// shaderc_fragment_options.add_macro_definition(FRAGMENT_DEFINE, None);
 
 	fs::create_dir_all(GEN_FOLDER)?;
 	fs::remove_dir_all(GEN_FOLDER)?;
@@ -82,7 +165,7 @@ fn main() -> Result<()> {
 		"release"
 	});
 
-	for entry in walkdir::WalkDir::new("shaders") {
+	for entry in walkdir::WalkDir::new(SHADERS_FOLDER) {
 		let entry = entry?;
 		let file_type = entry.file_type();
 
@@ -132,12 +215,16 @@ fn main() -> Result<()> {
 				SourceType::Hlsl => {
 					let data = fs::read(path)?;
 					let (target_profile, defines) = match shader_type {
-						ShaderType::Vertex => {
-							("vs_6_0", [(VERTEX_DEFINE, None)].as_slice())
-						}
-						ShaderType::Fragment => {
-							("ps_6_0", [(FRAGMENT_DEFINE, None)].as_slice())
-						}
+						ShaderType::Vertex => (
+							"vs_6_0",
+							[(VERTEX_DEFINE, None), (HLSL_DEFINE, None)]
+								.as_slice(),
+						),
+						ShaderType::Fragment => (
+							"ps_6_0",
+							[(FRAGMENT_DEFINE, None), (HLSL_DEFINE, None)]
+								.as_slice(),
+						),
 					};
 
 					let result = dxc_compiler.compile(
@@ -145,16 +232,16 @@ fn main() -> Result<()> {
 						source_name,
 						SHADER_ENTRY_POINT,
 						target_profile,
-						dxc_args,
-						None,
+						dxc_args.as_slice(),
+						Some(&mut *include_handler.borrow_mut()),
 						defines,
 					);
 
 					match result {
 						Err(result) => {
 							let error_buffer = result.0.get_error_buffer()?;
-							let error =
-								dxc_library.get_blob_as_string(&error_buffer.into())?;
+							let error = dxc_library
+								.get_blob_as_string(&error_buffer.into())?;
 
 							bail!("{}", error);
 						}
@@ -167,13 +254,16 @@ fn main() -> Result<()> {
 				}
 				SourceType::Glsl => {
 					let data = fs::read_to_string(path)?;
+
 					let (shader_type, additional_options) = match shader_type {
-						ShaderType::Vertex => {
-							(shaderc::ShaderKind::Vertex, &shaderc_vertex_options)
-						}
-						ShaderType::Fragment => {
-							(shaderc::ShaderKind::Fragment, &shaderc_fragment_options)
-						}
+						ShaderType::Vertex => (
+							shaderc::ShaderKind::Vertex,
+							&shaderc_vertex_options,
+						),
+						ShaderType::Fragment => (
+							shaderc::ShaderKind::Fragment,
+							&shaderc_fragment_options,
+						),
 					};
 
 					let result = shaderc_compiler.compile_into_spirv(

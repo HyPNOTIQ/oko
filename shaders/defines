@@ -1,0 +1,13 @@
+#ifndef DEFINES_INCLUDED
+#define DEFINES_INCLUDED
+
+#if defined(HLSL)
+#define _location(ID) [[vk::location(ID)]]
+#define _constant_id(ID) [[vk::constant_id(ID)]]
+#elif defined(GLSL)
+#define _location(ID) layout(location = ID)
+#define _constant_id(ID) layout(constant_id = ID)
+#define float4 vec4
+#endif
+
+#endif
