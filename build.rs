@@ -212,17 +212,16 @@ fn main() -> Result<()> {
 				SourceType::Hlsl => {
 					let data = fs::read(path)?;
 					let (target_profile, defines) = match shader_type {
-						ShaderType::Vertex => (
-							"vs_6_0",
-							[(VERTEX_DEFINE, None), (HLSL_DEFINE, None)]
-								.as_slice(),
-						),
-						ShaderType::Fragment => (
-							"ps_6_0",
-							[(FRAGMENT_DEFINE, None), (HLSL_DEFINE, None)]
-								.as_slice(),
-						),
+						ShaderType::Vertex => {
+							("vs_6_0", [(VERTEX_DEFINE, None)].as_slice())
+						}
+						ShaderType::Fragment => {
+							("ps_6_0", [(FRAGMENT_DEFINE, None)].as_slice())
+						}
 					};
+
+					let defines =
+						[defines, [(HLSL_DEFINE, None)].as_slice()].concat();
 
 					let result = dxc_compiler.compile(
 						&dxc_library.create_blob_with_encoding(&data)?,
@@ -231,7 +230,7 @@ fn main() -> Result<()> {
 						target_profile,
 						dxc_args.as_slice(),
 						Some(&mut *include_handler.borrow_mut()),
-						defines,
+						&defines,
 					);
 
 					match result {
