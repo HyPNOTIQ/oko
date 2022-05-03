@@ -13,7 +13,7 @@
 			"args": [
 				// "res/gltf/EnvironmentTest/EnvironmentTest.gltf",
 				"res/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf",
-				// "--renderdoc",
+				"--renderdoc",
 			],
 			"environment": [
 				{

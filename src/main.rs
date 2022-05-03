@@ -1,3 +1,4 @@
+mod gltf_wrapper;
 mod viewer;
 mod vulkan_wrapper;
 mod wsi;

@@ -3,6 +3,8 @@ mod buffer;
 mod command_pool;
 #[cfg(debug_assertions)]
 pub mod debug_messanger;
+mod descriptor_pool;
+mod descriptor_set_layout;
 mod device;
 mod fence;
 mod frame_buffer;
@@ -24,6 +26,8 @@ pub use allocator::Allocator;
 pub use buffer::Buffer;
 pub use command_pool::CommandBuffer;
 pub use command_pool::CommandPool;
+pub use descriptor_pool::DescriptorPool;
+pub use descriptor_set_layout::DescriptorSetLayout;
 pub use device::Device;
 pub use fence::Fence;
 pub use frame_buffer::FrameBuffer;

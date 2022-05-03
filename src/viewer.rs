@@ -1,15 +1,21 @@
+use super::gltf_wrapper::Scene;
 use super::vulkan_wrapper;
 use super::vulkan_wrapper::Allocator;
 use super::vulkan_wrapper::Buffer;
 use super::vulkan_wrapper::CommandPool;
 use super::vulkan_wrapper::CreateSurface;
+use super::vulkan_wrapper::DescriptorPool;
+use super::vulkan_wrapper::DescriptorSetLayout;
 use super::vulkan_wrapper::Device;
 use super::vulkan_wrapper::Fence;
 use super::vulkan_wrapper::FrameBuffer;
+use super::vulkan_wrapper::GraphicsPipeline;
 use super::vulkan_wrapper::Image;
 use super::vulkan_wrapper::ImageView;
 use super::vulkan_wrapper::Instance;
 use super::vulkan_wrapper::PhysicalDevice;
+use super::vulkan_wrapper::Pipeline;
+use super::vulkan_wrapper::PipelineLayout;
 use super::vulkan_wrapper::Queue;
 use super::vulkan_wrapper::RenderPass;
 use super::vulkan_wrapper::Semaphore;
@@ -17,10 +23,12 @@ use super::vulkan_wrapper::ShaderModule;
 use super::vulkan_wrapper::Surface;
 use super::vulkan_wrapper::Swapchain;
 use crate::slice_from_ref;
+use anyhow::anyhow;
 use anyhow::Result;
 use ash::vk;
 use gltf::Gltf;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 type RenderDoc = renderdoc::RenderDoc<renderdoc::V100>;
 
@@ -42,6 +50,8 @@ struct FrameResources<'a> {
 	pub render_done_fence: Fence<'a>,
 }
 
+const UNIFORM_BUFFER_VK_DESCRIPTOR_COUNT: usize = 64;
+const DESCRIPTOR_SET_COUNT: usize = 512;
 const SHADER_ENTRY_POINT: &std::ffi::CStr = cstr::cstr!("main");
 
 #[repr(C)]
@@ -61,8 +71,11 @@ pub fn run<SurfaceOwner: CreateSurface>(
 			Path::new(&working_dir).join("capture/renderdoc/");
 
 		renderdoc.set_log_file_path_template(render_doc_log_path);
-		let x = renderdoc.get_log_file_path_template();
-		println!("{}", x.display());
+		log::info!(
+			"RenderDoc initialized with capure folder: {}",
+			renderdoc.get_log_file_path_template().display()
+		);
+
 		Some(renderdoc)
 	} else {
 		None
@@ -70,6 +83,15 @@ pub fn run<SurfaceOwner: CreateSurface>(
 
 	let input_file = Path::new(&config.input_file);
 	let gltf = Gltf::open(input_file)?;
+
+	let scenes = gltf
+		.scenes()
+		.map(|scene| Scene::new(&scene))
+		.collect::<Result<Vec<_>>>()?;
+
+	let scene = scenes.get(config.scene_index).ok_or_else(|| {
+		anyhow!("glTF file has no requested index: {}", config.scene_index)
+	})?;
 
 	let surface_required_extension = present_target.required_extensions()?;
 
@@ -100,7 +122,7 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	// Physical device and main queue
 	let (physical_device, graphics_queue_family_index) =
 		find_suitable_physical_device(&instance, &surface).ok_or_else(
-			|| anyhow::anyhow!("The suitable physical device is not found"),
+			|| anyhow!("The suitable physical device is not found"),
 		)?;
 
 	// Device
@@ -148,12 +170,31 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	)?;
 
 	// vertex shader
-	let _vertex_shader_module =
+	let vertex_shader_module =
 		ShaderModule::new(&device, &gen_shader_path("geometry.vert"))?;
 
 	// fragment shader
-	let _frag_shader_module =
+	let frag_shader_module =
 		ShaderModule::new(&device, &gen_shader_path("geometry.frag"))?;
+
+	let vertex_shader_state_create_info =
+		vk::PipelineShaderStageCreateInfo::builder()
+			.module(vertex_shader_module.handle())
+			.name(SHADER_ENTRY_POINT)
+			.stage(vk::ShaderStageFlags::VERTEX)
+			.build();
+
+	let frag_shader_state_create_info =
+		vk::PipelineShaderStageCreateInfo::builder()
+			.module(frag_shader_module.handle())
+			.name(SHADER_ENTRY_POINT)
+			.stage(vk::ShaderStageFlags::FRAGMENT)
+			.build();
+
+	let shader_stage_create_infos = [
+		vertex_shader_state_create_info,
+		frag_shader_state_create_info,
+	];
 
 	// viewport state
 	let height = surface_extent.height as f32;
@@ -198,20 +239,6 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
 		.attachments(&color_blend_attachments);
 
-	let graphics_pipeline_create_info =
-		vk::GraphicsPipelineCreateInfo::builder()
-			// .stages(&shader_stage_create_infos)
-			// .input_assembly_state(&vertex_input_assembly_state_info)
-			// .vertex_input_state(&vertex_input_state_info)
-			.rasterization_state(&rasterization_info)
-			.color_blend_state(&color_blend_state)
-			.multisample_state(&multisample_state_info)
-			.viewport_state(&viewport_state_info)
-			// .render_pass(render_pass.handle())
-			// .layout(pipeline_layout.handle())
-			// .depth_stencil_state(&depth_stencil_state_info)
-			;
-
 	// depth
 	let depth_format_candidates = [
 		vk::Format::D24_UNORM_S8_UINT,
@@ -229,7 +256,7 @@ pub fn run<SurfaceOwner: CreateSurface>(
 			depth_format_tiling,
 			depth_format_features,
 		)
-		.ok_or_else(|| anyhow::anyhow!("Suitable depth format not found"))?;
+		.ok_or_else(|| anyhow!("Suitable depth format not found"))?;
 
 	let depth_extent = vk::Extent3D::builder()
 		.width(surface_extent.width)
@@ -332,6 +359,24 @@ pub fn run<SurfaceOwner: CreateSurface>(
 
 	let render_pass = RenderPass::new(&device, &render_pass_create_info)?;
 
+	// layout
+	let bindings = [vk::DescriptorSetLayoutBinding::builder()
+		.binding(0)
+		.descriptor_count(1)
+		.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+		.stage_flags(vk::ShaderStageFlags::VERTEX)
+		.build()];
+
+	let descriptor_set_layout = DescriptorSetLayout::new(&device, &bindings)?;
+
+	let descriptor_set_layouts = [descriptor_set_layout.handle()];
+
+	let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
+		.set_layouts(&descriptor_set_layouts);
+
+	let pipeline_layout =
+		PipelineLayout::new(&device, &pipeline_layout_create_info)?;
+
 	// framebuffers
 	let framebuffers = swapchain
 		.image_views()
@@ -351,6 +396,98 @@ pub fn run<SurfaceOwner: CreateSurface>(
 			FrameBuffer::new(&device, &frame_buffer_create_info)
 		})
 		.collect::<Result<Vec<_>>>()?;
+
+	// descriptor pool
+	let pool_sizes = [vk::DescriptorPoolSize::builder()
+		.ty(vk::DescriptorType::UNIFORM_BUFFER)
+		.descriptor_count(UNIFORM_BUFFER_VK_DESCRIPTOR_COUNT as _)
+		.build()];
+
+	let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::builder()
+		.pool_sizes(&pool_sizes)
+		.max_sets(DESCRIPTOR_SET_COUNT as _)
+		.build();
+
+	let descriptor_pool =
+		DescriptorPool::new(&device, &descriptor_pool_create_info)?;
+
+	let descriptor_sets =
+		descriptor_pool.allocate_descriptor_sets(&descriptor_set_layouts)?;
+
+	let view_projection_buffer_size = std::mem::size_of::<ViewProjectionUBO>();
+	let mut view_projection_buffers =
+		std::iter::repeat_with(|| -> Result<_> {
+			let buffer_create_info = vk::BufferCreateInfo::builder()
+				.size(view_projection_buffer_size as _)
+				.usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
+				.sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+			let buffer = Buffer::new(
+				&device,
+				&allocator,
+				&buffer_create_info,
+				gpu_allocator::MemoryLocation::CpuToGpu,
+				"",
+			)?;
+
+			Ok(buffer)
+		})
+		.take(swapchain_image_count)
+		.collect::<Result<Vec<_>>>()?;
+
+	for buffer in view_projection_buffers.iter() {
+		let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(buffer.handle())
+			.range(view_projection_buffer_size as _)
+			.build();
+
+		let descriptor_buffer_info = slice_from_ref(&descriptor_buffer_info);
+
+		let descriptor_set = descriptor_sets[0];
+		let descriptor_write_sets = vk::WriteDescriptorSet::builder()
+			.dst_set(descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+			.buffer_info(descriptor_buffer_info)
+			.build();
+
+		let descriptor_write_sets = slice_from_ref(&descriptor_write_sets);
+
+		device.update_descriptor_sets(&descriptor_write_sets, &[]);
+	}
+
+	// depth stencil state
+	let depth_stencil_state_info =
+		vk::PipelineDepthStencilStateCreateInfo::builder()
+			.depth_test_enable(true)
+			.depth_write_enable(true)
+			.depth_compare_op(vk::CompareOp::LESS);
+
+	// vertex_input_state
+	let vertex_input_state_info =
+		vk::PipelineVertexInputStateCreateInfo::builder();
+
+	// input assembly
+	let vertex_input_assembly_state_info =
+		vk::PipelineInputAssemblyStateCreateInfo::builder()
+			.topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+
+	let graphics_pipeline_create_info =
+		vk::GraphicsPipelineCreateInfo::builder()
+			.stages(&shader_stage_create_infos)
+			.input_assembly_state(&vertex_input_assembly_state_info)
+			.vertex_input_state(&vertex_input_state_info)
+			.rasterization_state(&rasterization_info)
+			.color_blend_state(&color_blend_state)
+			.multisample_state(&multisample_state_info)
+			.viewport_state(&viewport_state_info)
+			.render_pass(render_pass.handle())
+			.layout(pipeline_layout.handle())
+			.depth_stencil_state(&depth_stencil_state_info);
+
+	let pipeline =
+		GraphicsPipeline::new(&device, &graphics_pipeline_create_info)?;
 
 	// record command buffers
 	for (command_buffer, frame_buffer) in
@@ -394,34 +531,29 @@ pub fn run<SurfaceOwner: CreateSurface>(
 			vk::SubpassContents::INLINE,
 		);
 
-		command_buffer.bind_vertex_buffers(
-			vertex_buffers.handles(),
-			vertex_buffers.offsets(),
+		command_buffer.bind_pipeline(&pipeline);
+
+		// command_buffer.bind_vertex_buffers(
+		// 	vertex_buffers.handles(),
+		// 	vertex_buffers.offsets(),
+		// );
+
+		let first_descriptor_set = 0;
+		command_buffer.bind_descriptor_sets(
+			pipeline.bind_point(),
+			pipeline_layout.handle(),
+			first_descriptor_set as _,
+			&descriptor_sets,
+			&[],
 		);
 
+		command_buffer.draw(6, 1, 0, 0);
 		command_buffer.end_render_pass();
 		command_buffer.end()?;
 	}
 
-	let mut view_projection_buffers =
-		std::iter::repeat_with(|| -> Result<_> {
-			let buffer_create_info = vk::BufferCreateInfo::builder()
-				.size(std::mem::size_of::<ViewProjectionUBO>() as _)
-				.usage(vk::BufferUsageFlags::UNIFORM_BUFFER)
-				.sharing_mode(vk::SharingMode::EXCLUSIVE);
-
-			let buffer = Buffer::new(
-				&device,
-				&allocator,
-				&buffer_create_info,
-				gpu_allocator::MemoryLocation::CpuToGpu,
-				"",
-			)?;
-
-			Ok(buffer)
-		})
-		.take(swapchain_image_count)
-		.collect::<Result<Vec<_>>>()?;
+	let pipeline =
+		GraphicsPipeline::new(&device, &graphics_pipeline_create_info)?;
 
 	let frame_resources = std::iter::repeat_with(|| -> Result<_> {
 		let frame_resources = FrameResources {
@@ -440,6 +572,8 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	let mut camera_dolly = 2.0_f32;
 	let mut azimuth = 0.0_f32;
 	let mut altitude = std::f32::consts::FRAC_PI_2;
+	let mut delta_time = 0.0_f32;
+	let mut start = Instant::now();
 
 	let mut current_index = 0_usize;
 	loop {
@@ -516,16 +650,21 @@ pub fn run<SurfaceOwner: CreateSurface>(
 			slice_from_ref(&render_done_semaphore.handle()),
 		)?;
 
-		current_index += 1;
-		current_index %= swapchain_image_count;
-
 		if stop {
 			break;
 		}
+
+		current_index += 1;
+		current_index %= swapchain_image_count;
+
+		let end = Instant::now();
+		delta_time = (end - start).as_secs_f32();
+		start = end;
+
+		azimuth += delta_time;
 	}
 
 	device.wait_idle()?;
-
 	Ok(())
 }
 
@@ -701,7 +840,7 @@ unsafe extern "system" fn vulkan_debug_callback(
 	callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
 	_: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
-	use ::log::{error, info, trace, warn};
+	use log::{error, info, trace, warn};
 
 	use vk::DebugUtilsMessageSeverityFlagsEXT;
 	use vk::DebugUtilsMessageTypeFlagsEXT;
