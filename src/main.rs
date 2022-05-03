@@ -12,7 +12,7 @@ use std::{
 use viewer::LaunchConfig;
 use winit::{
 	dpi::LogicalSize,
-	event::{Event, WindowEvent},
+	event::{ElementState, Event, VirtualKeyCode, WindowEvent},
 	event_loop::{ControlFlow, EventLoop},
 	window::WindowBuilder,
 };
@@ -57,6 +57,8 @@ fn main() -> Result<()> {
 		DEFAULT_SCENE_INDEX
 	};
 
+	let renderdoc = args.is_present("RENDERDOC");
+
 	let logical_window_size = LogicalSize::new(800, 600);
 	let event_loop = EventLoop::<CustomEvent>::with_user_event();
 	let event_loop_proxy = event_loop.create_proxy();
@@ -80,6 +82,7 @@ fn main() -> Result<()> {
 		let config = LaunchConfig {
 			input_file,
 			scene_index,
+			renderdoc,
 		};
 
 		if let Err(error) = viewer::run(present_target, config, rx) {
@@ -109,6 +112,19 @@ fn main() -> Result<()> {
 					log::info!("Shut down");
 					tx.send(viewer::Event::Stop).unwrap();
 					exit();
+				}
+				WindowEvent::KeyboardInput { input, .. } => {
+					if let Some(virtual_keycode) = input.virtual_keycode {
+						match virtual_keycode {
+							VirtualKeyCode::Key2 => match input.state {
+								ElementState::Pressed => tx
+									.send(viewer::Event::RenderDocFrameCapture)
+									.unwrap(),
+								_ => (),
+							},
+							_ => (),
+						}
+					}
 				}
 				_ => (),
 			},

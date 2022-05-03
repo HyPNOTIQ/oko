@@ -11,7 +11,7 @@ impl<'a> PipelineLayout<'a> {
 		create_info: &vk::PipelineLayoutCreateInfo,
 	) -> Result<Self> {
 		let handle = unsafe {
-			device.inner().create_pipeline_layout(&create_info, None)?
+			device.inner().create_pipeline_layout(create_info, None)?
 		};
 
 		let pipeline_layout = Self { handle, device };

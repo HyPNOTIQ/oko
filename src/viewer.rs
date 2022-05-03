@@ -22,13 +22,17 @@ use ash::vk;
 use gltf::Gltf;
 use std::path::{Path, PathBuf};
 
+type RenderDoc = renderdoc::RenderDoc<renderdoc::V100>;
+
 pub enum Event {
 	Stop,
+	RenderDocFrameCapture,
 }
 
 pub struct LaunchConfig {
 	pub input_file: PathBuf,
 	pub scene_index: usize,
+	pub renderdoc: bool,
 }
 
 struct FrameResources<'a> {
@@ -50,6 +54,20 @@ pub fn run<SurfaceOwner: CreateSurface>(
 	config: LaunchConfig,
 	rx: std::sync::mpsc::Receiver<Event>,
 ) -> Result<()> {
+	let mut renderdoc = if config.renderdoc {
+		let mut renderdoc = RenderDoc::new()?;
+		let working_dir = std::env::current_dir()?;
+		let render_doc_log_path =
+			Path::new(&working_dir).join("capture/renderdoc/");
+
+		renderdoc.set_log_file_path_template(render_doc_log_path);
+		let x = renderdoc.get_log_file_path_template();
+		println!("{}", x.display());
+		Some(renderdoc)
+	} else {
+		None
+	};
+
 	let input_file = Path::new(&config.input_file);
 	let gltf = Gltf::open(input_file)?;
 
@@ -400,7 +418,6 @@ pub fn run<SurfaceOwner: CreateSurface>(
 				"",
 			)?;
 
-			// Ok(Some(buffer))
 			Ok(buffer)
 		})
 		.take(swapchain_image_count)
@@ -431,8 +448,12 @@ pub fn run<SurfaceOwner: CreateSurface>(
 
 		for event in rx.try_iter() {
 			match event {
-				// Defer break to be sure all events processed
-				Event::Stop => stop = true,
+				Event::Stop => stop = true, // Defer break to be sure all events processed
+				Event::RenderDocFrameCapture => {
+					if let Some(ref mut renderdoc) = renderdoc {
+						renderdoc.trigger_capture();
+					}
+				}
 			}
 		}
 
@@ -494,8 +515,6 @@ pub fn run<SurfaceOwner: CreateSurface>(
 			next_image,
 			slice_from_ref(&render_done_semaphore.handle()),
 		)?;
-
-		// log::info!("frame");
 
 		current_index += 1;
 		current_index %= swapchain_image_count;
@@ -620,7 +639,7 @@ fn create_vertex_buffers<'a>(
 		.collect::<Result<Vec<_>>>()?;
 
 	transfer_command_buffer.end()?;
-	let transfer_fence = Fence::new(&device, false)?;
+	let transfer_fence = Fence::new(device, false)?;
 	queue.submit(&transfer_command_buffer, &[], &[], &[], &transfer_fence)?;
 	transfer_fence.wait_max_timeout()?;
 

@@ -4,9 +4,11 @@
 #if defined(HLSL)
 #define _location(ID) [[vk::location(ID)]]
 #define _constant_id(ID) [[vk::constant_id(ID)]]
+#define _binding(ID) [[vk::binding(ID)]]
 #elif defined(GLSL)
 #define _location(ID) layout(location = ID)
 #define _constant_id(ID) layout(constant_id = ID)
+#define _binding(ID) layout(binding = ID)
 #define float4 vec4
 #endif
 

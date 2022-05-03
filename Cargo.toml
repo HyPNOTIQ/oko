@@ -16,6 +16,7 @@ maplit = "1.0.2"
 gpu-allocator = "0.17.0"
 cstr = "0.2.10"
 glm = { package = "nalgebra-glm", version = "0.17.0" }
+renderdoc = "0.10.1"
 
 [build-dependencies]
 anyhow = "1.0.57"

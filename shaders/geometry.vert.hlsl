@@ -11,7 +11,7 @@ struct SViewProjection {
 	matrix mt;
 };
 
-[[vk::binding(0)]]  ConstantBuffer<SViewProjection> view_projection : register(b0);
+_binding(0)  ConstantBuffer<SViewProjection> view_projection : register(b0);
 
 SVertexOutput main(SVertexData IN) {
 	SVertexOutput OUT;
